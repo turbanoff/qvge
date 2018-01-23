@@ -53,7 +53,8 @@ void CNodeEditorScene::initialize()
 	createClassAttribute("node", "size", "Size", QSizeF(11.0, 11.0));
 
     CAttribute posAttr("pos", "Position", QPointF());
-    setClassAttribute("node", posAttr);
+	posAttr.noDefault = true;
+	setClassAttribute("node", posAttr);
 
 	// default edge attr
     CAttribute edgeAttr("color", "Color", QColor(Qt::gray));
@@ -74,6 +75,11 @@ void CNodeEditorScene::initialize()
 	edgeDirections->ids << "directed" << "mutual" << "undirected";
 	edgeDirections->icons << QIcon(":/Icons/Edge-Directed") << QIcon(":/Icons/Edge-Mutual") << QIcon(":/Icons/Edge-Undirected");
 	setClassAttributeConstrains("edge", "direction", edgeDirections);
+
+	CAttributeConstrainsList *edgeStyles = new CAttributeConstrainsList();
+	edgeStyles->names << "Solid" << "Dots" << "Dashes";
+	edgeStyles->ids << "solid" << "dotted" << "dashed";
+	setClassAttributeConstrains("edge", "style", edgeStyles);
 
 	CAttributeConstrainsList *nodeShapes = new CAttributeConstrainsList();
 	nodeShapes->names << "Dics" << "Square" << "Triangle (up)" << "Triangle (down)" << "Diamond";

@@ -27,9 +27,9 @@ CNewAttributeDialog::~CNewAttributeDialog()
     delete ui;
 }
 
-QString CNewAttributeDialog::getId() const
+QByteArray CNewAttributeDialog::getId() const
 {
-    return ui->Id->text();
+    return ui->Id->text().toLatin1();
 }
 
 int CNewAttributeDialog::getType() const
@@ -39,7 +39,9 @@ int CNewAttributeDialog::getType() const
     case 0:     return QVariant::Int;
     case 1:     return QVariant::Double;
     case 2:     return QVariant::Bool;
-    default:    return QVariant::String;
+	case 3:     return QVariant::Color;
+	case 4:     return QVariant::Font;
+	default:    return QVariant::String;
     }
 }
 
@@ -50,6 +52,8 @@ QVariant CNewAttributeDialog::getValue() const
     case 0:     return int(0);
     case 1:     return double(0.0);
     case 2:     return bool(true);
+	case 3:     return QColor();
+	case 4:     return QFont();
     default:    return QString();
     }
 }

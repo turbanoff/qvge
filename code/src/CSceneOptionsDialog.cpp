@@ -7,8 +7,13 @@ QVGE - Qt Visual Graph Editor
 It can be used freely, maintaining the information above.
 */
 
+#include <QPixmapCache>
+
+#include <base/CPlatformServices.h>
+
 #include "CSceneOptionsDialog.h"
 #include "ui_CSceneOptionsDialog.h"
+
 
 CSceneOptionsDialog::CSceneOptionsDialog(QWidget *parent) :
     QDialog(parent),
@@ -26,7 +31,7 @@ CSceneOptionsDialog::~CSceneOptionsDialog()
 }
 
 
-int CSceneOptionsDialog::exec(CEditorScene &scene)
+int CSceneOptionsDialog::exec(CEditorScene &scene, CEditorView &view)
 {
 	ui->BackgroundColor->setColor(scene.backgroundBrush().color());
 
@@ -37,6 +42,13 @@ int CSceneOptionsDialog::exec(CEditorScene &scene)
 	ui->GridVisible->setChecked(scene.gridEnabled());
 	ui->GridSnap->setChecked(scene.gridSnapEnabled());
 
+	ui->Antialiasing->setChecked(view.renderHints().testFlag(QPainter::Antialiasing));
+
+	ui->CacheSlider->setValue(QPixmapCache::cacheLimit() / 1024);
+	quint64 ram = CPlatformServices::GetTotalRAMBytes() / (1024 * 1024);	// mb
+	ram /= 2;	// 50%
+    ui->CacheSlider->setMaximum((int)ram);
+    ui->CacheSlider->setUnitText(tr("MB"));
 
 	if (QDialog::exec() == QDialog::Rejected)
 		return QDialog::Rejected;
@@ -50,6 +62,10 @@ int CSceneOptionsDialog::exec(CEditorScene &scene)
 	scene.setGridSize(ui->GridSize->value());
 	scene.enableGrid(ui->GridVisible->isChecked());
 	scene.enableGridSnap(ui->GridSnap->isChecked());
+
+	view.setRenderHint(QPainter::Antialiasing, ui->Antialiasing->isChecked());
+
+	QPixmapCache::setCacheLimit(ui->CacheSlider->value() * 1024);
 
 	return QDialog::Accepted;
 }

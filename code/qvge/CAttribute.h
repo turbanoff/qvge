@@ -28,9 +28,12 @@ struct CAttribute
 	QByteArray id;
 	QString name;
 	QVariant defaultValue;
-	bool isVirtual;	// x,y,label,color etc.
 
-	int valueType;
+	bool isVirtual = false;	// x,y,label,color etc.
+	bool noDefault = false;	// default value makes no sense (id, label, position)
+    bool userDefined = false;
+
+	int valueType = 0;
 
 	// serialization 
 	virtual bool storeTo(QDataStream& out, quint64 version64) const;
@@ -120,5 +123,18 @@ struct CAttributeConstrainsList: public CAttributeConstrains
 	QStringList names;
 	QStringList ids;
 	IconsList icons;
+
+	// convenience method to conform property browser API
+	QMap<int, QIcon> iconsAsMap() const
+	{
+		QMap<int, QIcon> result;
+
+		for (int i = 0; i < icons.size(); ++i)
+		{
+			result[i] = icons[i];
+		}
+
+		return result;
+	}
 };
 

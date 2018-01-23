@@ -34,12 +34,12 @@ const char* versionId = "VersionId";
 
 
 CEditorScene::CEditorScene(QObject *parent): QGraphicsScene(parent), 
-	m_startDragItem(NULL),
-    m_activeItemFactory(NULL),
-    m_draggedItem(NULL),
-    m_menuTriggerItem(NULL),
     m_doubleClick(false),
+    m_startDragItem(NULL),
+    m_activeItemFactory(NULL),
     m_undoManager(new CSimpleUndoManager(*this)),
+    m_menuTriggerItem(NULL),
+    m_draggedItem(NULL),
     m_needUpdateItems(true)
 {
     m_gridSize = 25;
@@ -60,9 +60,6 @@ CEditorScene::CEditorScene(QObject *parent): QGraphicsScene(parent),
 	setMinimumRenderSize(5);
 
 	QPixmapCache::setCacheLimit(200000);
-
-	// init scene
-	addUndoState();
 }
 
 CEditorScene::~CEditorScene()
@@ -91,7 +88,8 @@ void CEditorScene::initialize()
 
 	// default item attrs
     CAttribute labelAttr("label", "Label", "");
-    setClassAttribute("item", labelAttr, true);
+	labelAttr.noDefault = true;
+	setClassAttribute("item", labelAttr, true);
 
 	CAttribute labelColorAttr("label.color", "Label Color", QColor(Qt::black));
 	setClassAttribute("item", labelColorAttr);
@@ -104,8 +102,8 @@ void CEditorScene::initialize()
 	setClassAttribute("item", labelSizeAttr);
 
     CAttribute idAttr("id", "ID", "");
-    setClassAttribute("item", idAttr);
-
+	idAttr.noDefault = true;
+	setClassAttribute("item", idAttr, true);
 
 	// static init
 	static bool s_init = false;
@@ -496,26 +494,46 @@ bool CEditorScene::createClassAttribute(const QByteArray& classId,
 
 void CEditorScene::setClassAttribute(const QByteArray& classId, const CAttribute& attr, bool vis)
 {
-	m_classAttributes[classId][attr.id] = attr;
+	// only update value if exists 
+	if (m_classAttributes[classId].contains(attr.id))
+		m_classAttributes[classId][attr.id].defaultValue = attr.defaultValue;
+	else 
+		// else insert
+		m_classAttributes[classId][attr.id] = attr;
 
 	setClassAttributeVisible(classId, attr.id, vis);
 
-	m_needUpdateItems = true;
-	//update();
-	//invalidate();
+	needUpdate();
 }
 
 
 void CEditorScene::setClassAttribute(const QByteArray& classId, const QByteArray& attrId, const QVariant& defaultValue)
 {
-	if (m_classAttributes[classId].contains(attrId))
+	// clone from super if not found
+	if (!m_classAttributes[classId].contains(attrId))
 	{
-		m_classAttributes[classId][attrId].defaultValue = defaultValue;
+		auto superId = getSuperClassId(classId);
+		while (!superId.isEmpty() && !m_classAttributes[superId].contains(attrId))
+		{
+			superId = getSuperClassId(superId);
+		}
 
-		m_needUpdateItems = true;
-		//update();
-		//invalidate();
+		if (!superId.isEmpty())
+		{
+			auto attr = m_classAttributes[superId][attrId];
+			attr.defaultValue = defaultValue;
+			m_classAttributes[classId][attrId] = attr;
+			
+			needUpdate();
+		}
+
+		return;
 	}
+
+	// else just update the value
+	m_classAttributes[classId][attrId].defaultValue = defaultValue;
+
+	needUpdate();
 }
 
 
@@ -525,9 +543,7 @@ bool CEditorScene::removeClassAttribute(const QByteArray& classId, const QByteAr
 	if (it == m_classAttributes.end())
 		return false;
 
-	m_needUpdateItems = true;
-	//update();
-	//invalidate();
+	needUpdate();
 
 	return (*it).remove(attrId);
 }
@@ -929,7 +945,8 @@ void CEditorScene::layoutItemLabels()
 
 void CEditorScene::needUpdate()
 {
-	m_labelsUpdate = true;
+	//m_labelsUpdate = true;
+	m_needUpdateItems = true;
 
 	update();
 }
@@ -1143,8 +1160,11 @@ void CEditorScene::finishDrag(QGraphicsSceneMouseEvent* mouseEvent, QGraphicsIte
 
 	m_startDragItem = NULL;
 
-	QGraphicsItem *hoverItem = itemAt(mouseEvent->scenePos(), QTransform());
-	updateMovedCursor(mouseEvent, hoverItem);
+	if (mouseEvent)
+	{
+		QGraphicsItem *hoverItem = itemAt(mouseEvent->scenePos(), QTransform());
+		updateMovedCursor(mouseEvent, hoverItem);
+	}
 }
 
 
@@ -1190,7 +1210,7 @@ void CEditorScene::onDragging(QGraphicsItem* /*dragItem*/, const QSet<CItem*>& a
 }
 
 
-void CEditorScene::onDropped(QGraphicsSceneMouseEvent* mouseEvent, QGraphicsItem* dragItem)
+void CEditorScene::onDropped(QGraphicsSceneMouseEvent* /*mouseEvent*/, QGraphicsItem* dragItem)
 {
 	if (m_gridSnap)
 	{
@@ -1332,6 +1352,23 @@ void CEditorScene::keyPressEvent(QKeyEvent *keyEvent)
 
 		keyEvent->accept();
 		return;
+	}
+}
+
+
+// general events
+
+void CEditorScene::focusInEvent(QFocusEvent *focusEvent)
+{
+	Super::focusInEvent(focusEvent);
+
+	static bool s_firstRun = true;
+	if (s_firstRun) 
+	{
+		s_firstRun = false;
+
+		// init scene
+		addUndoState();
 	}
 }
 

@@ -14,11 +14,6 @@ It can be used freely, maintaining the information above.
 #include <qvge/CEditorScene.h>
 #include <qvge/CItem.h>
 
-#include <CIntegerProperty.h>
-#include <CDoubleProperty.h>
-#include <CBoolProperty.h>
-#include <CStringProperty.h>
-
 #include <QMessageBox>
 
 
@@ -27,6 +22,11 @@ CAttributesEditorUI::CAttributesEditorUI(QWidget *parent) :
 	ui(new Ui::CAttributesEditorUI)
 {
 	ui->setupUi(this);
+
+    ui->Editor->setFactoryForManager(&m_manager, &m_factory);
+
+    connect(&m_manager, SIGNAL(valueChanged(QtProperty*, const QVariant&)),
+            this, SLOT(onValueChanged(QtProperty*, const QVariant&)));
 }
 
 CAttributesEditorUI::~CAttributesEditorUI()
@@ -37,12 +37,15 @@ CAttributesEditorUI::~CAttributesEditorUI()
 
 int CAttributesEditorUI::setupFromItems(CEditorScene& scene, QList<CItem*> &items)
 {
+	// order of clear() is important!
+	ui->Editor->setUpdatesEnabled(false);
+	ui->Editor->clear();
+
+	m_manager.blockSignals(true);
+	m_manager.clear();
+
 	m_scene = &scene;
 	m_items = items;
-
-	ui->Editor->setUpdatesEnabled(false);
-
-	ui->Editor->clear();
 
 	struct AttrData
 	{
@@ -90,66 +93,29 @@ int CAttributesEditorUI::setupFromItems(CEditorScene& scene, QList<CItem*> &item
 		}
 	}
 
+	int topCount = 0;
+
 	for (auto it = attrs.constBegin(); it != attrs.constEnd(); ++it)
 	{
-		CBaseProperty* prop = NULL;
+        auto prop = m_manager.addProperty(it.value().dataType, it.key());
+        prop->setValue(it.value().data);
+        auto item = ui->Editor->addProperty(prop);
+        ui->Editor->setExpanded(item, false);
 
-		switch (it.value().dataType)
-		{
-			case QVariant::Bool:
-			{
-				prop = new CBoolProperty(
-					it.key(),
-					it.key(),
-					it.value().data.toBool());
-				break;
-			}
+        if (!it.value().data.isValid())
+            prop->setModified(true);
 
-			case QVariant::Int:
-			case QVariant::UInt:
-			case QVariant::LongLong:
-			case QVariant::ULongLong:
-			{
-				prop = new CIntegerProperty(
-					it.key(),
-					it.key(),
-					it.value().data.toInt());
-				break;
-			}
-
-			case QVariant::Double:
-			{
-				prop = new CDoubleProperty(
-					it.key(),
-					it.key(),
-					it.value().data.toDouble());
-				break;
-			}
-
-			case QVariant::String:
-			{
-				prop = new CStringProperty(
-					it.key(),
-					it.key(),
-					it.value().data.toString());
-				break;
-			}
-
-			default:;   //  unknown
-		}
-
-		if (prop)
-		{
-			ui->Editor->add(prop);
-
-			if (!it.value().data.isValid())
-				prop->setText(0, prop->text(0).prepend("*"));
-		}
+		topCount++;
 	}
 
 	ui->Editor->setUpdatesEnabled(true);
 
-	return ui->Editor->topLevelItemCount();
+    m_manager.blockSignals(false);
+
+	// force update
+	on_Editor_currentItemChanged(ui->Editor->currentItem());
+
+    return topCount;
 }
 
 
@@ -162,7 +128,7 @@ void CAttributesEditorUI::on_AddButton_clicked()
     if (dialog.exec() == QDialog::Rejected)
         return;
 
-    auto id = dialog.getId().toLocal8Bit();
+    auto id = dialog.getId();
     if (id.isEmpty())
         return;
 
@@ -187,6 +153,8 @@ void CAttributesEditorUI::on_AddButton_clicked()
 
 	// rebuild tree
 	setupFromItems(*m_scene, m_items);
+
+	ui->Editor->setFocus();
 }
 
 
@@ -195,27 +163,38 @@ void CAttributesEditorUI::on_RemoveButton_clicked()
 	if (!m_scene || m_items.isEmpty())
 		return;
 
-	auto prop = dynamic_cast<CBaseProperty*>(ui->Editor->currentItem());
-	if (!prop)
+	auto item = (ui->Editor->currentItem());
+	if (!item)
 		return;
 
-	auto attrId = prop->getId();
+	// no subprops
+	if (item->parent())
+		return;
+
+	auto prop = item->property();
+	QString attrId = prop->propertyName();
 	if (attrId.isEmpty())
 		return;
 
 	int r = QMessageBox::question(NULL,
 		tr("Remove Attribute"),
-		tr("Remove attribute '%1' from selected item(s)?").arg(QString(attrId)),
+		tr("Remove attribute '%1' from selected item(s)?").arg(attrId),
 		QMessageBox::Yes, QMessageBox::Cancel);
 
 	if (r == QMessageBox::Cancel)
 		return;
 
+	delete prop;
+
 	bool used = false;
 
 	for (auto sceneItem : m_items)
 	{
-		used |= sceneItem->removeAttribute(attrId);
+		bool ok = sceneItem->removeAttribute(attrId.toLatin1());
+		if (ok)
+			sceneItem->getSceneItem()->update();
+
+		used |= ok;
 	}
 
 	if (!used)
@@ -225,18 +204,32 @@ void CAttributesEditorUI::on_RemoveButton_clicked()
 	m_scene->addUndoState();
 
 	// rebuild tree
-	setupFromItems(*m_scene, m_items);
+	//setupFromItems(*m_scene, m_items);
+
+	ui->Editor->setFocus();
 }
 
 
-void CAttributesEditorUI::on_Editor_valueChanged(CBaseProperty *prop, const QVariant &v)
+void CAttributesEditorUI::on_Editor_currentItemChanged(QtBrowserItem* item)
+{
+	ui->RemoveButton->setEnabled(item != NULL);
+}
+
+
+void CAttributesEditorUI::onValueChanged(QtProperty *property, const QVariant &val)
 {
 	if (!m_scene || m_items.isEmpty())
 		return;
 
+	// no subprops
+	if (!ui->Editor->topLevelItem(property))
+		return;
+
+	auto attrId = property->propertyName().toLatin1();
+
 	for (auto sceneItem : m_items)
 	{
-		sceneItem->setAttribute(prop->getId(), v);
+        sceneItem->setAttribute(attrId, val);
 	}
 
 	// store state

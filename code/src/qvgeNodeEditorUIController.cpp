@@ -26,9 +26,10 @@ It can be used freely, maintaining the information above.
 #include <CCommutationTable.h>
 #include <CSceneOptionsDialog.h>
 #include <CNodeEdgePropertiesUI.h>
+#include <CClassAttributesEditorUI.h>
 
 
-qvgeNodeEditorUIController::qvgeNodeEditorUIController(CMainWindow *parent, CNodeEditorScene *scene, CEditorView *view) : 
+qvgeNodeEditorUIController::qvgeNodeEditorUIController(qvgeMainWindow *parent, CNodeEditorScene *scene, CEditorView *view) :
 	QObject(parent),
 	m_parent(parent), m_scene(scene), m_editorView(view)
 {
@@ -121,6 +122,14 @@ void qvgeNodeEditorUIController::createMenus()
 	unlinkAction->setStatusTip(tr("Unlink selected nodes"));
 	connect(unlinkAction, &QAction::triggered, m_scene, &CNodeEditorScene::onActionUnlink);
 
+	// scene options
+	editMenu->addSeparator();
+
+	QAction *sceneAction = editMenu->addAction(QIcon(":/Icons/Settings"), tr("&Options..."));
+	sceneAction->setStatusTip(tr("Set up the scene"));
+	connect(sceneAction, &QAction::triggered, this, &qvgeNodeEditorUIController::sceneOptions);
+
+
 	// add edit toolbar
 	QToolBar *editToolbar = m_parent->addToolBar(tr("Edit"));
     editToolbar->setObjectName("editToolbar");
@@ -179,13 +188,6 @@ void qvgeNodeEditorUIController::createMenus()
 	fitZoomAction->setStatusTip(tr("Zoom to fit all the items to view"));
 	connect(fitZoomAction, &QAction::triggered, m_editorView, &CEditorView::fitToView);
 
-	viewMenu->addSeparator();
-
-	// scene options
-	QAction *sceneAction = viewMenu->addAction(tr("&Options..."));
-	sceneAction->setStatusTip(tr("Set up the scene"));
-	connect(sceneAction, &QAction::triggered, this, &qvgeNodeEditorUIController::sceneOptions);
-
 
 	// add view toolbar
 	QToolBar *zoomToolbar = m_parent->addToolBar(tr("View"));
@@ -207,7 +209,7 @@ void qvgeNodeEditorUIController::createMenus()
 void qvgeNodeEditorUIController::createPanels()
 {
 	// propertis
-	QDockWidget *propertyDock = new QDockWidget(tr("Properties"));
+    QDockWidget *propertyDock = new QDockWidget(tr("Item Properties"));
     propertyDock->setObjectName("propertyDock");
 	m_parent->addDockWidget(Qt::RightDockWidgetArea, propertyDock);
 
@@ -216,13 +218,22 @@ void qvgeNodeEditorUIController::createPanels()
     propertyDock->setWidget(propertiesPanel);
 
 	// connections
-	QDockWidget *connectionsDock = new QDockWidget(tr("Connections"));
+    QDockWidget *connectionsDock = new QDockWidget(tr("Topology"));
     connectionsDock->setObjectName("connectionsDock");
 	m_parent->addDockWidget(Qt::RightDockWidgetArea, connectionsDock);
 
     CCommutationTable *connectionsPanel = new CCommutationTable(connectionsDock);
 	connectionsDock->setWidget(connectionsPanel);
 	connectionsPanel->setScene(m_scene);
+
+    // default properties
+    QDockWidget *defaultsDock = new QDockWidget(tr("Default Properties"));
+    defaultsDock ->setObjectName("defaultsDock");
+    m_parent->addDockWidget(Qt::LeftDockWidgetArea, defaultsDock);
+
+    CClassAttributesEditorUI *defaultsPanel = new CClassAttributesEditorUI(defaultsDock);
+    defaultsPanel->setScene(m_scene);
+    defaultsDock->setWidget(defaultsPanel);
 }
 
 
@@ -234,6 +245,7 @@ void qvgeNodeEditorUIController::createNavigator()
     QToolButton *sliderButton = m_sliderView->makeAsButton();
     m_editorView->setCornerWidget(sliderButton);
 
+	sliderButton->setIcon(QIcon(":/Icons/Navigator"));
     sliderButton->setToolTip(tr("Show scene navigator"));
     connect(m_sliderView, SIGNAL(aboutToShow()), this, SLOT(onNavigatorShown()));
 
@@ -316,11 +328,13 @@ void qvgeNodeEditorUIController::resetZoom()
 void qvgeNodeEditorUIController::sceneOptions()
 {
     CSceneOptionsDialog dialog;
-    if (dialog.exec(*m_scene))
+    if (dialog.exec(*m_scene, *m_editorView))
     {
         gridAction->setChecked(m_scene->gridEnabled());
         gridSnapAction->setChecked(m_scene->gridSnapEnabled());
         actionShowLabels->setChecked(m_scene->itemLabelsEnabled());
+
+		m_parent->writeSettings();
     }
 }
 
