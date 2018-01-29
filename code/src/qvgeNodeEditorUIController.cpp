@@ -7,7 +7,26 @@ QVGE - Qt Visual Graph Editor
 It can be used freely, maintaining the information above.
 */
 
-#include "qvgeNodeEditorUIController.h"
+#include <qvgeNodeEditorUIController.h>
+#include <qvgeMainWindow.h>
+#include <CCommutationTable.h>
+#include <CSceneOptionsDialog.h>
+#include <CNodeEdgePropertiesUI.h>
+#include <CClassAttributesEditorUI.h>
+#include <COGDFLayoutUIController.h>
+#include <COGDFNewGraphDialog.h>
+#include <COGDFLayout.h>
+
+#include <qvge/CNode.h>
+#include <qvge/CConnection.h>
+#include <qvge/CImageExport.h>
+#include <qvge/CPDFExport.h>
+#include <qvge/CNodeEditorScene.h>
+#include <qvge/CEditorView.h>
+#include <qvge/CFileSerializerGEXF.h>
+#include <qvge/CFileSerializerGraphML.h>
+#include <qvge/CFileSerializerXGR.h>
+#include <qvge/CFileSerializerDOT.h>
 
 #include <QMenuBar>
 #include <QStatusBar>
@@ -17,26 +36,23 @@ It can be used freely, maintaining the information above.
 #include <QWidgetAction>
 #include <QResizeEvent>
 #include <QDebug>
-
-#include <qvge/CNode.h>
-#include <qvge/CConnection.h>
-#include <qvge/CImageExport.h>
-#include <qvge/CPDFExport.h>
-
-#include <CCommutationTable.h>
-#include <CSceneOptionsDialog.h>
-#include <CNodeEdgePropertiesUI.h>
-#include <CClassAttributesEditorUI.h>
+#include <QPixmapCache>
+#include <QFileDialog>
 
 
-qvgeNodeEditorUIController::qvgeNodeEditorUIController(qvgeMainWindow *parent, CNodeEditorScene *scene, CEditorView *view) :
+qvgeNodeEditorUIController::qvgeNodeEditorUIController(qvgeMainWindow *parent) :
 	QObject(parent),
-	m_parent(parent), m_scene(scene), m_editorView(view)
+	m_parent(parent)
 {
+	// create document
+	m_editorScene = new CNodeEditorScene(parent);
+	m_editorView = new CEditorView(m_editorScene, parent);
+	parent->setCentralWidget(m_editorView);
+
 	// connect scene
-	connect(scene, &CEditorScene::sceneChanged, parent, &CMainWindow::onDocumentChanged);
-    connect(scene, &CEditorScene::sceneChanged, this, &qvgeNodeEditorUIController::onSceneChanged);
-	connect(scene, &CEditorScene::selectionChanged, this, &qvgeNodeEditorUIController::onSelectionChanged);
+	connect(m_editorScene, &CEditorScene::sceneChanged, parent, &CMainWindow::onDocumentChanged);
+    connect(m_editorScene, &CEditorScene::sceneChanged, this, &qvgeNodeEditorUIController::onSceneChanged);
+	connect(m_editorScene, &CEditorScene::selectionChanged, this, &qvgeNodeEditorUIController::onSelectionChanged);
 
 	// connect view
 	connect(m_editorView, SIGNAL(scaleChanged(double)), this, SLOT(onZoomChanged(double)));
@@ -58,6 +74,9 @@ qvgeNodeEditorUIController::qvgeNodeEditorUIController(qvgeMainWindow *parent, C
     onSceneChanged();
     onSelectionChanged();
     onZoomChanged(1);
+
+    // OGDF
+    m_ogdfController = new COGDFLayoutUIController(parent, m_editorScene);
 }
 
 
@@ -73,7 +92,11 @@ void qvgeNodeEditorUIController::createMenus()
 	m_parent->getFileMenu()->insertAction(exportAction, exportActionPDF);
 	connect(exportActionPDF, &QAction::triggered, this, &qvgeNodeEditorUIController::exportPDF);
 
-	m_parent->getFileMenu()->insertSeparator(exportActionPDF);
+	QAction *exportActionDOT = new QAction(tr("Export to &DOT/GraphViz..."));
+	m_parent->getFileMenu()->insertAction(exportActionPDF, exportActionDOT);
+	connect(exportActionDOT, &QAction::triggered, this, &qvgeNodeEditorUIController::exportDOT);
+
+	m_parent->getFileMenu()->insertSeparator(exportActionDOT);
 
 
 	// add edit menu
@@ -83,44 +106,44 @@ void qvgeNodeEditorUIController::createMenus()
 	QAction *undoAction = editMenu->addAction(QIcon(":/Icons/Undo"), tr("&Undo"));
 	undoAction->setStatusTip(tr("Undo latest action"));
 	undoAction->setShortcut(QKeySequence::Undo);
-	connect(undoAction, &QAction::triggered, m_scene, &CEditorScene::undo);
-	connect(m_scene, &CEditorScene::undoAvailable, undoAction, &QAction::setEnabled);
-	undoAction->setEnabled(m_scene->availableUndoCount());
+	connect(undoAction, &QAction::triggered, m_editorScene, &CEditorScene::undo);
+	connect(m_editorScene, &CEditorScene::undoAvailable, undoAction, &QAction::setEnabled);
+	undoAction->setEnabled(m_editorScene->availableUndoCount());
 
 	QAction *redoAction = editMenu->addAction(QIcon(":/Icons/Redo"), tr("&Redo"));
 	redoAction->setStatusTip(tr("Redo latest action"));
 	redoAction->setShortcut(QKeySequence::Redo);
-	connect(redoAction, &QAction::triggered, m_scene, &CEditorScene::redo);
-	connect(m_scene, &CEditorScene::redoAvailable, redoAction, &QAction::setEnabled);
-	redoAction->setEnabled(m_scene->availableRedoCount());
+	connect(redoAction, &QAction::triggered, m_editorScene, &CEditorScene::redo);
+	connect(m_editorScene, &CEditorScene::redoAvailable, redoAction, &QAction::setEnabled);
+	redoAction->setEnabled(m_editorScene->availableRedoCount());
 
 	editMenu->addSeparator();
 
 	cutAction = editMenu->addAction(QIcon(":/Icons/Cut"), tr("Cu&t"));
 	cutAction->setStatusTip(tr("Cut selection to clipboard"));
 	cutAction->setShortcut(QKeySequence::Cut);
-	connect(cutAction, &QAction::triggered, m_scene, &CEditorScene::cut);
+	connect(cutAction, &QAction::triggered, m_editorScene, &CEditorScene::cut);
 
 	copyAction = editMenu->addAction(QIcon(":/Icons/Copy"), tr("&Copy"));
 	copyAction->setStatusTip(tr("Copy selection to clipboard"));
 	copyAction->setShortcut(QKeySequence::Copy);
-	connect(copyAction, &QAction::triggered, m_scene, &CEditorScene::copy);
+	connect(copyAction, &QAction::triggered, m_editorScene, &CEditorScene::copy);
 
 	pasteAction = editMenu->addAction(QIcon(":/Icons/Paste"), tr("&Paste"));
 	pasteAction->setStatusTip(tr("Paste selection from clipboard"));
 	pasteAction->setShortcut(QKeySequence::Paste);
-	connect(pasteAction, &QAction::triggered, m_scene, &CEditorScene::paste);
+	connect(pasteAction, &QAction::triggered, m_editorScene, &CEditorScene::paste);
 
 	delAction = editMenu->addAction(QIcon(":/Icons/Delete"), tr("&Delete"));
 	delAction->setStatusTip(tr("Delete selection"));
 	delAction->setShortcut(QKeySequence::Delete);
-	connect(delAction, &QAction::triggered, m_scene, &CEditorScene::del);
+	connect(delAction, &QAction::triggered, m_editorScene, &CEditorScene::del);
 
 	editMenu->addSeparator();
 
 	unlinkAction = editMenu->addAction(QIcon(":/Icons/Unlink"), tr("&Unlink"));
 	unlinkAction->setStatusTip(tr("Unlink selected nodes"));
-	connect(unlinkAction, &QAction::triggered, m_scene, &CNodeEditorScene::onActionUnlink);
+	connect(unlinkAction, &QAction::triggered, m_editorScene, &CNodeEditorScene::onActionUnlink);
 
 	// scene options
 	editMenu->addSeparator();
@@ -153,20 +176,20 @@ void qvgeNodeEditorUIController::createMenus()
     gridAction = viewMenu->addAction(QIcon(":/Icons/Grid-Show"), tr("Show &Grid"));
 	gridAction->setCheckable(true);
 	gridAction->setStatusTip(tr("Show/hide background grid"));
-	gridAction->setChecked(m_scene->gridEnabled());
-	connect(gridAction, SIGNAL(toggled(bool)), m_scene, SLOT(enableGrid(bool)));
+	gridAction->setChecked(m_editorScene->gridEnabled());
+	connect(gridAction, SIGNAL(toggled(bool)), m_editorScene, SLOT(enableGrid(bool)));
 
     gridSnapAction = viewMenu->addAction(QIcon(":/Icons/Grid-Snap"), tr("&Snap to Grid"));
 	gridSnapAction->setCheckable(true);
 	gridSnapAction->setStatusTip(tr("Snap to grid when dragging"));
-	gridSnapAction->setChecked(m_scene->gridSnapEnabled());
-	connect(gridSnapAction, SIGNAL(toggled(bool)), m_scene, SLOT(enableGridSnap(bool)));
+	gridSnapAction->setChecked(m_editorScene->gridSnapEnabled());
+	connect(gridSnapAction, SIGNAL(toggled(bool)), m_editorScene, SLOT(enableGridSnap(bool)));
 
     actionShowLabels = viewMenu->addAction(QIcon(":/Icons/Label"), tr("Show &Labels"));
 	actionShowLabels->setCheckable(true);
 	actionShowLabels->setStatusTip(tr("Show/hide item labels"));
-	actionShowLabels->setChecked(m_scene->itemLabelsEnabled());
-	connect(actionShowLabels, SIGNAL(toggled(bool)), m_scene, SLOT(enableItemLabels(bool)));
+	actionShowLabels->setChecked(m_editorScene->itemLabelsEnabled());
+	connect(actionShowLabels, SIGNAL(toggled(bool)), m_editorScene, SLOT(enableItemLabels(bool)));
 
 	viewMenu->addSeparator();
 
@@ -214,7 +237,7 @@ void qvgeNodeEditorUIController::createPanels()
 	m_parent->addDockWidget(Qt::RightDockWidgetArea, propertyDock);
 
     CNodeEdgePropertiesUI *propertiesPanel = new CNodeEdgePropertiesUI(propertyDock);
-    propertiesPanel->setScene(m_scene);
+    propertiesPanel->setScene(m_editorScene);
     propertyDock->setWidget(propertiesPanel);
 
 	// connections
@@ -224,7 +247,7 @@ void qvgeNodeEditorUIController::createPanels()
 
     CCommutationTable *connectionsPanel = new CCommutationTable(connectionsDock);
 	connectionsDock->setWidget(connectionsPanel);
-	connectionsPanel->setScene(m_scene);
+	connectionsPanel->setScene(m_editorScene);
 
     // default properties
     QDockWidget *defaultsDock = new QDockWidget(tr("Default Properties"));
@@ -232,7 +255,7 @@ void qvgeNodeEditorUIController::createPanels()
     m_parent->addDockWidget(Qt::LeftDockWidgetArea, defaultsDock);
 
     CClassAttributesEditorUI *defaultsPanel = new CClassAttributesEditorUI(defaultsDock);
-    defaultsPanel->setScene(m_scene);
+    defaultsPanel->setScene(m_editorScene);
     defaultsDock->setWidget(defaultsPanel);
 }
 
@@ -257,8 +280,8 @@ void qvgeNodeEditorUIController::createNavigator()
 
 void qvgeNodeEditorUIController::onNavigatorShown()
 {
-    double w = m_scene->sceneRect().width();
-    double h = m_scene->sceneRect().height();
+    double w = m_editorScene->sceneRect().width();
+    double h = m_editorScene->sceneRect().height();
     double cw = w > h ? 200.0 : 200.0 * (w/h);
     double ch = h > w ? 200.0 : 200.0 * (h/w) ;
     m_sliderView->setFixedSize(cw, ch);
@@ -269,7 +292,7 @@ void qvgeNodeEditorUIController::onNavigatorShown()
 
     QPixmap pm(m_sliderView->size());
     QPainter p(&pm);
-    m_scene->render(&p);
+    m_editorScene->render(&p);
     m_sliderView->setBackgroundBrush(pm);
 }
 
@@ -281,21 +304,21 @@ qvgeNodeEditorUIController::~qvgeNodeEditorUIController()
 
 void qvgeNodeEditorUIController::onSelectionChanged()
 {
-	int selectionCount = m_scene->selectedItems().size();
+	int selectionCount = m_editorScene->selectedItems().size();
 
 	cutAction->setEnabled(selectionCount > 0);
 	copyAction->setEnabled(selectionCount > 0);
 	delAction->setEnabled(selectionCount > 0);
 
-	auto nodes = m_scene->getSelectedItems<CNode>();
+	auto nodes = m_editorScene->getSelectedItems<CNode>();
 	unlinkAction->setEnabled(nodes.size() > 0);
 }
 
 
 void qvgeNodeEditorUIController::onSceneChanged()
 {
-    auto nodes = m_scene->getItems<CNode>();
-    auto edges = m_scene->getItems<CConnection>();
+    auto nodes = m_editorScene->getItems<CNode>();
+    auto edges = m_editorScene->getItems<CConnection>();
 
     m_statusLabel->setText(tr("Nodes: %1 | Edges: %2").arg(nodes.size()).arg(edges.size()));
 }
@@ -328,11 +351,11 @@ void qvgeNodeEditorUIController::resetZoom()
 void qvgeNodeEditorUIController::sceneOptions()
 {
     CSceneOptionsDialog dialog;
-    if (dialog.exec(*m_scene, *m_editorView))
+    if (dialog.exec(*m_editorScene, *m_editorView))
     {
-        gridAction->setChecked(m_scene->gridEnabled());
-        gridSnapAction->setChecked(m_scene->gridSnapEnabled());
-        actionShowLabels->setChecked(m_scene->itemLabelsEnabled());
+        gridAction->setChecked(m_editorScene->gridEnabled());
+        gridSnapAction->setChecked(m_editorScene->gridSnapEnabled());
+        actionShowLabels->setChecked(m_editorScene->itemLabelsEnabled());
 
 		m_parent->writeSettings();
     }
@@ -341,7 +364,32 @@ void qvgeNodeEditorUIController::sceneOptions()
 
 void qvgeNodeEditorUIController::exportFile()
 {
-	if (CImageExport::write(*m_scene, m_parent->getCurrentFileName()))
+	if (CImageExport::write(*m_editorScene, m_parent->getCurrentFileName()))
+	{
+		m_parent->statusBar()->showMessage(tr("Export successful"));
+	}
+	else
+	{
+		m_parent->statusBar()->showMessage(tr("Export failed"));
+	}
+}
+
+
+void qvgeNodeEditorUIController::exportDOT()
+{
+	CFileSerializerDOT dot;
+
+	QString fileName = CUtils::cutLastSuffix(m_parent->getCurrentFileName());
+
+	QString path = QFileDialog::getSaveFileName(NULL,
+		QObject::tr("Export as GraphViz graph"), 
+		fileName,
+		dot.description() + " (" + dot.filters() + ")");
+
+	if (path.isEmpty())
+		return;
+
+	if (dot.save(path, *m_editorScene))
 	{
 		m_parent->statusBar()->showMessage(tr("Export successful"));
 	}
@@ -354,7 +402,7 @@ void qvgeNodeEditorUIController::exportFile()
 
 void qvgeNodeEditorUIController::exportPDF()
 {
-	if (CPDFExport::write(*m_scene, m_parent->getCurrentFileName()))
+	if (CPDFExport::write(*m_editorScene, m_parent->getCurrentFileName()))
 	{
 		m_parent->statusBar()->showMessage(tr("Export successful"));
 	}
@@ -362,4 +410,71 @@ void qvgeNodeEditorUIController::exportPDF()
 	{
 		m_parent->statusBar()->showMessage(tr("Export failed"));
 	}
+}
+
+
+void qvgeNodeEditorUIController::doReadSettings(QSettings& settings)
+{
+	bool isAA = m_editorView->renderHints().testFlag(QPainter::Antialiasing);
+	isAA = settings.value("antialiasing", isAA).toBool();
+	m_editorView->setRenderHint(QPainter::Antialiasing, isAA);
+
+	int cacheRam = QPixmapCache::cacheLimit();
+	cacheRam = settings.value("cacheRam", cacheRam).toInt();
+	QPixmapCache::setCacheLimit(cacheRam);
+}
+
+
+void qvgeNodeEditorUIController::doWriteSettings(QSettings& settings)
+{
+	bool isAA = m_editorView->renderHints().testFlag(QPainter::Antialiasing);
+	settings.setValue("antialiasing", isAA);
+
+	int cacheRam = QPixmapCache::cacheLimit();
+	settings.setValue("cacheRam", cacheRam);
+}
+
+
+bool qvgeNodeEditorUIController::loadFromFile(const QString &fileName, const QString &format)
+{
+    if (format == "xgr")
+    {
+        return (CFileSerializerXGR().load(fileName, *m_editorScene));
+    }
+
+	if (format == "graphml")
+	{
+        return (CFileSerializerGraphML().load(fileName, *m_editorScene));
+	}
+
+	if (format == "gexf")
+	{
+        return (CFileSerializerGEXF().load(fileName, *m_editorScene));
+	}
+
+    // else via ogdf
+    return (COGDFLayout::loadGraph(fileName.toStdString(), *m_editorScene));
+}
+
+
+bool qvgeNodeEditorUIController::saveToFile(const QString &fileName, const QString &format)
+{
+    if (format == "xgr")
+        return (CFileSerializerXGR().save(fileName, *m_editorScene));
+
+    if (format == "dot")
+        return (CFileSerializerDOT().save(fileName, *m_editorScene));
+
+    return false;
+}
+
+
+void qvgeNodeEditorUIController::onNewDocumentCreated()
+{
+    COGDFNewGraphDialog dialog;
+    if (dialog.exec(*m_editorScene))
+    {
+        // update scene info
+        //onSceneChanged();
+    }
 }

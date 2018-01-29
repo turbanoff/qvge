@@ -11,13 +11,14 @@ It can be used freely, maintaining the information above.
 
 #include <QAction>
 #include <QLabel>
-
-#include <qvgeMainWindow.h>
-
-#include <qvge/CNodeEditorScene.h>
-#include <qvge/CEditorView.h>
+#include <QSettings>
 
 #include <slider2d.h>
+
+class qvgeMainWindow;
+
+class CNodeEditorScene;
+class CEditorView;
 
 
 class qvgeNodeEditorUIController : public QObject 
@@ -25,12 +26,21 @@ class qvgeNodeEditorUIController : public QObject
 	Q_OBJECT
 
 public:
-	qvgeNodeEditorUIController(qvgeMainWindow *parent, CNodeEditorScene *scene, CEditorView *view);
+	qvgeNodeEditorUIController(qvgeMainWindow *parent);
 	~qvgeNodeEditorUIController();
+
+	void doReadSettings(QSettings& settings);
+	void doWriteSettings(QSettings& settings);
+
+	bool loadFromFile(const QString &fileName, const QString &format);
+	bool saveToFile(const QString &fileName, const QString &format);
+
+    void onNewDocumentCreated();
 
 private Q_SLOTS:
 	void exportFile();
 	void exportPDF();
+	void exportDOT();
 
 	void onSelectionChanged();
     void onSceneChanged();
@@ -51,8 +61,10 @@ private:
 
 private:
 	qvgeMainWindow *m_parent;
-	CNodeEditorScene *m_scene;
+	CNodeEditorScene *m_editorScene;
 	CEditorView *m_editorView;
+
+    class COGDFLayoutUIController *m_ogdfController;
 
     class QSint::Slider2d *m_sliderView;
 

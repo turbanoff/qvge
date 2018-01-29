@@ -1,4 +1,4 @@
-#include "CMainWindow.h"
+﻿#include "CMainWindow.h"
 #include "CPlatformServices.h"
 
 #include <QFileDialog>
@@ -307,10 +307,12 @@ void CMainWindow::doCreateNewDocument(const QByteArray &docType)
     }
 
     // no document - create in place
-    if (onCreateNewDocument(docType))
+    if (createDocument(docType))
     {
         m_currentDocType = docType;
         m_isChanged = false;
+
+		onNewDocumentCreated(docType);
 
 		onCurrentFileChanged();
 
@@ -322,7 +324,7 @@ void CMainWindow::doCreateNewDocument(const QByteArray &docType)
 }
 
 
-bool CMainWindow::onCreateNewDocument(const QByteArray &docType)
+bool CMainWindow::createDocument(const QByteArray &docType)
 {
     qDebug() << docType;
 
@@ -376,7 +378,7 @@ bool CMainWindow::doOpenDocument(const QString &fileName)
     }
 
     // no document - open in place
-    if (onOpenDocument(normalizedName, m_currentDocType))
+    if (openDocument(normalizedName, m_currentDocType))
     {
         m_currentFileName = normalizedName;
         m_isChanged = false;
@@ -456,25 +458,37 @@ bool CMainWindow::saveAs()
         return true;
 
     QString filter;
-    const CDocument& doc = m_docTypes[m_currentDocType];
-    for (const auto& format : doc.formats)
+	QMap<QString, QString> filterToSuffix;
+	const CDocument& doc = m_docTypes[m_currentDocType];
+    for (const CDocumentFormat& format : doc.formats)
     {
         if (format.canSave)
         {
-            filter += format.name + " (" + format.filters + ") ;;";
+			QString formatFilter = format.name + " (" + format.filters + ")";
+            filter += formatFilter + ";;";
+
+			filterToSuffix[formatFilter] = format.suffixes.first();
         }
     }
 
     if (filter.size())
-        filter.chop(3);
+        filter.chop(2);
 
     QString title = tr("Save File");
     onSaveDocumentDialog(title, filter);
 
+	QString suffix = QFileInfo(m_currentFileName).suffix().toLower();
+
     QString selectedFilter = m_lastSaveFilter;
+
     QString fileName = QFileDialog::getSaveFileName(NULL, title, m_currentFileName, filter, &selectedFilter);
     if (fileName.isEmpty())
         return false;
+
+	// workaround: auto append suffix (QTBUG!)
+	QString selectedSuffix = QFileInfo(fileName).suffix().toLower();
+	if (selectedSuffix.isEmpty() && filterToSuffix.contains(selectedFilter))
+		fileName += "." + filterToSuffix[selectedFilter];
 
     QString normalizedName = QDir::toNativeSeparators(fileName);
 
@@ -484,7 +498,7 @@ bool CMainWindow::saveAs()
 
 bool CMainWindow::doSaveDocument(const QString &fileName, const QString &selectedFilter, const QByteArray &docType)
 {
-    if (onSaveDocument(fileName, selectedFilter, docType))
+    if (saveDocument(fileName, selectedFilter, docType))
     {
         m_currentFileName = fileName;
         m_isChanged = false;
@@ -773,7 +787,7 @@ void CMainWindow::readSettings()
 
 void CMainWindow::doReadSettings(QSettings& settings)
 {
-	// window geometry
+    // window geometry
 	const QByteArray geometry = settings.value("geometry", QByteArray()).toByteArray();
 	if (geometry.isEmpty()) 
 	{
@@ -787,24 +801,17 @@ void CMainWindow::doReadSettings(QSettings& settings)
 	}
 
 
+    // toolbars & dock widgets
+    QApplication::processEvents();
 
-	// toolbars & dock widgets
-	QApplication::processEvents();
-
-	restoreState(settings.value("windowState").toByteArray());
-
+    restoreState(settings.value("windowState").toByteArray());
 
 
-	// window state
-	if (settings.value("maximized", true).toBool())
-		showMaximized();
-	else
-		showNormal();
-
-	//if (isMaximized())
-	//{
-	//	setGeometry(QApplication::desktop()->availableGeometry(this));
-	//}
+    // window state
+    if (settings.value("maximized", true).toBool())
+        showMaximized();
+    else
+        showNormal();
 }
 
 

@@ -1,4 +1,4 @@
-/*
+﻿/*
 This file is a part of
 QVGE - Qt Visual Graph Editor
 
@@ -15,11 +15,6 @@ It can be used freely, maintaining the information above.
 #include <QTextStream>
 #include <QApplication>
 #include <QFileInfo>
-#include <QPixmapCache>
-
-#include <qvge/CFileSerializerGEXF.h>
-#include <qvge/CFileSerializerGraphML.h>
-#include <qvge/CFileSerializerXGR.h>
 
 #include <base/CPlatformServices.h>
 
@@ -33,14 +28,17 @@ qvgeMainWindow::qvgeMainWindow()
     QApplication::setApplicationName("Qt Visual Graph Editor");
     QApplication::setApplicationVersion(qvgeVersion.toString() + tr(" (Beta)") + bitString);
 
-    CDocumentFormat gexf = { "GEXF", "*.gexf", false, true };
-    CDocumentFormat graphml = { "GraphML", "*.graphml", true, true };
+	CDocumentFormat gexf = { "GEXF", "*.gexf", {"gexf"}, false, true };
+	CDocumentFormat graphml = { "GraphML", "*.graphml", {"graphml"}, false, true };
 //    CDocumentFormat gr = { "Old plain GR", "*.gr", false, true };
-    CDocumentFormat xgr = { "XML Graph", "*.xgr", true, true };
-    CDocument graph = { tr("Graph Document"), tr("Directed or undirected graph"), "graph", true, {gexf, graphml, xgr} };
+	CDocumentFormat xgr = { "XML Graph", "*.xgr", {"xgr"}, true, true };
+    CDocumentFormat gml = { "GML", "*.gml", { "gml" }, false, true };
+    //CDocumentFormat dot = { "DOT", "*.dot *.gv", { "dot","gv" }, true, true };
+    CDocument graph = { tr("Graph Document"), tr("Directed or undirected graph"), "graph", true,
+                        {gexf, graphml, gml, xgr} };
     addDocument(graph);
 
-    CDocumentFormat txt = { tr("Plain Text"), "*.txt", true, true };
+    CDocumentFormat txt = { tr("Plain Text"), "*.txt", { "txt" }, true, true };
     CDocument text = { tr("Text Document"), tr("Simple text document"), "text", true, {txt} };
     addDocument(text);
 }
@@ -54,16 +52,12 @@ void qvgeMainWindow::init(int argc, char *argv[])
 }
 
 
-bool qvgeMainWindow::onCreateNewDocument(const QByteArray &docType)
+bool qvgeMainWindow::createDocument(const QByteArray &docType)
 {
     // scene
     if (docType == "graph")
     {
-        m_editorScene = new CNodeEditorScene(this);
-        m_editorView = new CEditorView(m_editorScene, this);
-        setCentralWidget(m_editorView);
-
-        /*auto uiController = */new qvgeNodeEditorUIController(this, m_editorScene, m_editorView);
+		m_graphEditController = new qvgeNodeEditorUIController(this);
 
         // restore settings for this instance
         readSettings();
@@ -90,65 +84,39 @@ bool qvgeMainWindow::onCreateNewDocument(const QByteArray &docType)
 }
 
 
-bool qvgeMainWindow::onOpenDocument(const QString &fileName, QByteArray &docType)
+void qvgeMainWindow::onNewDocumentCreated(const QByteArray &docType)
 {
-	// graphs formats
-    if (fileName.toLower().endsWith(".graphml"))
-    {
-        docType = "graph";
-
-        if (onCreateNewDocument(docType))
-        {
-			if (CFileSerializerGraphML().load(fileName, *m_editorScene))
-			{
-				m_editorScene->addUndoState();
-				return true;
-			}
-        }
-
-        return false;
-    }
+	// wizard
+	if (docType == "graph")
+	{
+        m_graphEditController->onNewDocumentCreated();
+	}
+}
 
 
-    if (fileName.toLower().endsWith(".gexf"))
-    {
-        docType = "graph";
+bool qvgeMainWindow::openDocument(const QString &fileName, QByteArray &docType)
+{
+	QString format = QFileInfo(fileName).suffix().toLower();
 
-        if (onCreateNewDocument(docType))
-        {
-			if (CFileSerializerGEXF().load(fileName, *m_editorScene))
-			{
-				m_editorScene->addUndoState();
-				return true;
-			}
-        }
-        
+	// graph formats
+    if (format == "graphml" || format == "gexf" || format == "xgr" || format == "gml" || format == "dot")
+	{
+		docType = "graph";
+
+        if (createDocument(docType) && m_graphEditController->loadFromFile(fileName, format))
+		{
+			return true;
+		}
+
 		return false;
-    }
-
-
-    if (fileName.toLower().endsWith(".xgr"))
-    {
-        docType = "graph";
-
-        if (onCreateNewDocument(docType))
-        {
-            if (CFileSerializerXGR().load(fileName, *m_editorScene))
-            {
-                m_editorScene->addUndoState();
-                return true;
-            }
-        }
-
-        return false;
-    }
+	}
 
 	// fallback: load as text
 	//if (fileName.toLower().endsWith(".txt"))
 	{
 		docType = "text";
 
-		if (onCreateNewDocument(docType))
+        if (createDocument(docType))
 		{
 			QFile f(fileName);
 			if (f.open(QFile::ReadOnly))
@@ -165,7 +133,7 @@ bool qvgeMainWindow::onOpenDocument(const QString &fileName, QByteArray &docType
 }
 
 
-bool qvgeMainWindow::onSaveDocument(const QString &fileName, const QString &/*selectedFilter*/, const QByteArray &docType)
+bool qvgeMainWindow::saveDocument(const QString &fileName, const QString &/*selectedFilter*/, const QByteArray &docType)
 {
     // text
     if (docType == "text")
@@ -186,17 +154,8 @@ bool qvgeMainWindow::onSaveDocument(const QString &fileName, const QString &/*se
 	{
 		QString extType = QFileInfo(fileName).suffix().toLower();
 
-		if (extType == "xgr")
-		{
-			if (CFileSerializerXGR().save(fileName, *m_editorScene))
-			{
-				return true;
-			}
-
-			return false;
-		}
+        return m_graphEditController->saveToFile(fileName, extType);
 	}
-
 
     // unknown type
     return false;
@@ -217,15 +176,9 @@ void qvgeMainWindow::doReadSettings(QSettings& settings)
 {
 	Super::doReadSettings(settings);
 
-	if (m_editorView)
+	if (m_graphEditController)
 	{
-		bool isAA = m_editorView->renderHints().testFlag(QPainter::Antialiasing);
-		isAA = settings.value("antialiasing", isAA).toBool();
-		m_editorView->setRenderHint(QPainter::Antialiasing, isAA);
-
-		int cacheRam = QPixmapCache::cacheLimit();
-		cacheRam = settings.value("cacheRam", cacheRam).toInt();
-		QPixmapCache::setCacheLimit(cacheRam);
+		m_graphEditController->doReadSettings(settings);
 	}
 }
 
@@ -234,12 +187,8 @@ void qvgeMainWindow::doWriteSettings(QSettings& settings)
 {
 	Super::doWriteSettings(settings);
 
-	if (m_editorView)
+	if (m_graphEditController)
 	{
-		bool isAA = m_editorView->renderHints().testFlag(QPainter::Antialiasing);
-		settings.setValue("antialiasing", isAA);
-
-		int cacheRam = QPixmapCache::cacheLimit();
-		settings.setValue("cacheRam", cacheRam);
+		m_graphEditController->doWriteSettings(settings);
 	}
 }

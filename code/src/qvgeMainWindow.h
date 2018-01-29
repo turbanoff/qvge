@@ -1,4 +1,4 @@
-/*
+﻿/*
 This file is a part of
 QVGE - Qt Visual Graph Editor
 
@@ -10,13 +10,13 @@ It can be used freely, maintaining the information above.
 #ifndef QVGEMAINWINDOW_H
 #define QVGEMAINWINDOW_H
 
-#include <QtWidgets/QPlainTextEdit>
-#include <QtWidgets/QStatusBar>
+#include <QPlainTextEdit>
+#include <QStatusBar>
 
 #include <base/CMainWindow.h>
 
-#include <qvge/CNodeEditorScene.h>
-#include <qvge/CEditorView.h>
+
+class qvgeNodeEditorUIController;
 
 
 class qvgeMainWindow : public CMainWindow
@@ -25,6 +25,7 @@ class qvgeMainWindow : public CMainWindow
 
 public:
     typedef CMainWindow Super;
+
 	friend class qvgeNodeEditorUIController;
 
     qvgeMainWindow();
@@ -32,9 +33,10 @@ public:
     virtual void init(int argc, char *argv[]);
 
 protected:
-    virtual bool onCreateNewDocument(const QByteArray &docType);
-    virtual bool onOpenDocument(const QString &fileName, QByteArray &docType);
-    virtual bool onSaveDocument(const QString &fileName, const QString &selectedFilter, const QByteArray &docType);
+    virtual bool createDocument(const QByteArray &docType);
+	virtual void onNewDocumentCreated(const QByteArray &docType);
+    virtual bool openDocument(const QString &fileName, QByteArray &docType);
+    virtual bool saveDocument(const QString &fileName, const QString &selectedFilter, const QByteArray &docType);
 
 	virtual QString getAboutText() const;
 
@@ -42,8 +44,7 @@ protected:
 	virtual void doWriteSettings(QSettings& settings);
 	
 private:
-    CNodeEditorScene *m_editorScene = NULL;
-    CEditorView *m_editorView = NULL;
+	qvgeNodeEditorUIController *m_graphEditController = NULL;
 
     QPlainTextEdit *m_textEditor = NULL;
 };

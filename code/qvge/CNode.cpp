@@ -129,6 +129,7 @@ bool CNode::setAttribute(const QByteArray& attrId, const QVariant& v)
 			QSizeF sp = v.toSizeF();
 			if (!sp.isNull())
 			{
+				Super::setAttribute(attrId, sp);
 				resize(sp);
 				updateCachedItems();
 				return true;
@@ -139,6 +140,7 @@ bool CNode::setAttribute(const QByteArray& attrId, const QVariant& v)
 		float s = v.toFloat();
 		if (s > 0)
 		{
+			Super::setAttribute(attrId, QSizeF(s,s));
 			resize(s);
 			updateCachedItems();
 			return true;
@@ -362,7 +364,7 @@ double CNode::getDistanceToLineEnd(const QLineF& line) const
 
 	// polygon (must be cashed)
 	QPolygonF scenePolygon = m_shapeCache.translated(pos());
-	QPointF intersectionPoint = Utils::closestIntersection(line, scenePolygon);
+    QPointF intersectionPoint = CUtils::closestIntersection(line, scenePolygon);
 	return QLineF(intersectionPoint, line.p2()).length();
 }
 
@@ -539,8 +541,7 @@ QVariant CNode::itemChange(QGraphicsItem::GraphicsItemChange change, const QVari
 
 void CNode::paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget*)
 {
-	painter->setClipRect(option->exposedRect);
-	//painter->setClipRect(boundingRect());
+	painter->setClipRect(boundingRect());
 
 	// get color (to optimize!)
 	QVariant color = getAttribute("color");
